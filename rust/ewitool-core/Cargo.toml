@@ -1,0 +1,9 @@
+[package]
+name = "ewitool-core"
+description = "EWI4000s patch format and library files (no GUI, no MIDI)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fastrand = "2.5.0"

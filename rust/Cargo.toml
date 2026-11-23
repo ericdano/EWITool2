@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["ewitool-app","ewitool-core","ewitool-synth"]
+
+[workspace.package]
+version = "0.10.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+
+# Smaller, faster release builds (used by scripts/build-macos.sh).
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,9 @@
+[package]
+name = "ewitool-synth"
+description = "Software model of the EWI4000s sound engine, for auditioning patches offline"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ewitool-core = { path = "../ewitool-core" }
