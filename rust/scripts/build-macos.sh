@@ -61,7 +61,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <dict>
   <key>CFBundleName</key><string>EWITool2</string>
   <key>CFBundleDisplayName</key><string>EWITool2</string>
-  <key>CFBundleIdentifier</key><string>com.github.ledhed2222.ewitool2</string>
+  <key>CFBundleIdentifier</key><string>com.github.ericdano.ewitool2</string>
   <key>CFBundleExecutable</key><string>EWITool2</string>
   <key>CFBundleIconFile</key><string>EWITool2</string>
   <key>CFBundlePackageType</key><string>APPL</string>

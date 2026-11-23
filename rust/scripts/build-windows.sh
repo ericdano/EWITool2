@@ -78,7 +78,8 @@ Windows usually lets only one program at a time use a MIDI port. If the
 port won't open, close any other music software that uses the EWI and try
 again.
 
-Settings are saved in %APPDATA%\\ledhed2222\\EWItool\\config.
+Settings are saved in %APPDATA%\\ericdano\\EWITool2\\config (copied from
+the original EWItool's %APPDATA%\\ledhed2222\\EWItool\\config the first time).
 
 Licence
 -------

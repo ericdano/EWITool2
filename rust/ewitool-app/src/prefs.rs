@@ -24,16 +24,38 @@ pub struct Prefs {
     file: Option<PathBuf>,
 }
 
+/// The prefs file in the OS config folder for `org`/`app`.
+fn settings_file(org: &str, app: &str) -> Option<PathBuf> {
+    directories::ProjectDirs::from("com.github", org, app).map(|d| d.config_dir().join("prefs.txt"))
+}
+
+/// Copy `old` to `new` if there are settings at `old` and none at `new` yet.
+/// Returns whether it copied.
+fn migrate(old: &Path, new: &Path) -> io::Result<bool> {
+    if new.exists() || !old.is_file() {
+        return Ok(false);
+    }
+    if let Some(parent) = new.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::copy(old, new)?;
+    Ok(true)
+}
+
 /// Choices offered for the Patch Editor size, in percent.
 pub const EDITOR_SIZES: [u32; 5] = [100, 125, 150, 175, 200];
 pub const DEFAULT_EDITOR_SIZE: u32 = 200;
 
 impl Prefs {
     pub fn load() -> Self {
-        // Still the original "EWItool" folder, so settings carry over
-        // from before the EWITool2 rename.
-        let file = directories::ProjectDirs::from("com.github", "ledhed2222", "EWItool")
-            .map(|d| d.config_dir().join("prefs.txt"));
+        let file = settings_file("ericdano", "EWITool2");
+        // Settings used to live in the original EWItool's folder; bring them
+        // over the first time. The old file is left for the Java EWItool.
+        if let (Some(new), Some(old)) = (&file, settings_file("ledhed2222", "EWItool")) {
+            if let Err(e) = migrate(&old, new) {
+                eprintln!("Couldn't copy settings from {}: {e}", old.display());
+            }
+        }
         let mut prefs = Self {
             file,
             ..Self::default()
@@ -223,6 +245,31 @@ mod tests {
         let mut loaded = Prefs::default();
         loaded.read(&std::fs::read_to_string(&file).unwrap());
         assert_eq!(loaded.look, look);
+    }
+
+    #[test]
+    fn old_settings_are_copied_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = dir.path().join("ledhed2222/EWItool/prefs.txt");
+        let new = dir.path().join("ericdano/EWITool2/prefs.txt");
+
+        // Nothing to copy yet.
+        assert!(!migrate(&old, &new).unwrap());
+        assert!(!new.exists());
+
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        std::fs::write(&old, "midi_in=New external device #2\n").unwrap();
+        assert!(migrate(&old, &new).unwrap());
+        assert_eq!(
+            std::fs::read_to_string(&new).unwrap(),
+            "midi_in=New external device #2\n"
+        );
+        assert!(old.exists(), "the old file stays for the Java EWItool");
+
+        // Settings changed since then are never overwritten.
+        std::fs::write(&new, "theme=dark\n").unwrap();
+        assert!(!migrate(&old, &new).unwrap());
+        assert_eq!(std::fs::read_to_string(&new).unwrap(), "theme=dark\n");
     }
 
     #[test]
