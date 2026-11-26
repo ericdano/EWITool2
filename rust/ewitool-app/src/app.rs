@@ -51,8 +51,12 @@ const REVERT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::
 const PREFERENCES: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Comma);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+/// The main tabs. Code names predate the UI names: the scratchpad is shown
+/// as "Patch Library" and the library of patch sets as "Patch Sets".
 enum Tab {
+    /// "Patch Library": single patches, saved in `SCRATCHPAD.BIN`.
     Scratchpad,
+    /// "Patch Sets": the `.syx` patch sets in the library folder.
     Library,
     CurrentSet,
     Editor,
@@ -71,9 +75,9 @@ struct Library {
 enum Source {
     /// A slot of the Current Patch Set (the EWI).
     Slot(usize),
-    /// An entry in the Patch Scratchpad.
+    /// An entry in the Patch Library.
     Scratch(usize),
-    /// A Patch Scratchpad entry that has since been deleted.
+    /// A Patch Library entry that has since been deleted.
     Detached,
 }
 
@@ -83,7 +87,7 @@ struct Editor {
     /// The patch as it was when opened or last stored, for Revert.
     unedited: Patch,
     /// The patch as it was when the user last answered "copy your edits to
-    /// the Patch Scratchpad?", so they're only asked again after new edits.
+    /// the Patch Library?", so they're only asked again after new edits.
     asked: Option<Patch>,
 }
 
@@ -394,8 +398,8 @@ impl App {
             Err(e) => {
                 self.scratch = ScratchPad::in_memory();
                 self.message(
-                    "Patch Scratchpad",
-                    format!("Could not load the Patch Scratchpad: {e}"),
+                    "Patch Library",
+                    format!("Could not load the Patch Library: {e}"),
                 );
             }
         }
@@ -404,15 +408,15 @@ impl App {
     fn add_to_scratchpad(&mut self, patch: Patch) {
         let name = patch.name();
         match self.scratch.add(patch) {
-            Ok(()) => self.set_status(format!("{name} added to the Patch Scratchpad")),
+            Ok(()) => self.set_status(format!("{name} added to the Patch Library")),
             Err(e) => self.scratch_save_error(e),
         }
     }
 
     fn scratch_save_error(&mut self, e: ewitool_core::Error) {
         self.message(
-            "Patch Scratchpad",
-            format!("Could not save the Patch Scratchpad: {e}"),
+            "Patch Library",
+            format!("Could not save the Patch Library: {e}"),
         );
     }
 
@@ -488,7 +492,7 @@ impl App {
             Ok(patches) => lib.set_patches = patches,
             Err(e) => {
                 let text = format!("Could not read {name}: {e}");
-                self.message("Patch Set Library", text);
+                self.message("Patch Sets", text);
             }
         }
     }
@@ -498,7 +502,7 @@ impl App {
     }
 
     fn choose_library(&mut self) {
-        let mut dialog = rfd::FileDialog::new().set_title("Choose EWI Patch Set Library location…");
+        let mut dialog = rfd::FileDialog::new().set_title("Choose the EWITool2 library folder…");
         if let Some(dir) = self.prefs.library() {
             dialog = dialog.set_directory(dir);
         }
@@ -560,7 +564,7 @@ impl App {
     }
 
     /// Go somewhere that would leave the editor or replace its patch,
-    /// first offering to copy unsaved edits to the Patch Scratchpad.
+    /// first offering to copy unsaved edits to the Patch Library.
     fn navigate(&mut self, after: After) {
         let leaving = match after {
             After::Tab(tab) => self.tab == Tab::Editor && tab != Tab::Editor,
@@ -603,8 +607,8 @@ impl App {
         self.tab = Tab::Editor;
     }
 
-    /// Keep the editor's Patch Scratchpad index right after entry `removed`
-    /// is deleted (`None`: the whole Patch Scratchpad was cleared).
+    /// Keep the editor's Patch Library index right after entry `removed`
+    /// is deleted (`None`: the whole Patch Library was cleared).
     fn scratch_entry_removed(&mut self, removed: Option<usize>) {
         if let Some(ed) = &mut self.editor {
             if let Source::Scratch(i) = ed.source {
@@ -618,7 +622,7 @@ impl App {
     }
 
     /// Drop the editor if it was editing a slot of the old Current Patch
-    /// Set (a Patch Scratchpad patch stays open).
+    /// Set (a Patch Library patch stays open).
     fn bank_replaced(&mut self) {
         if self
             .editor
@@ -634,7 +638,7 @@ impl App {
 
     fn store_label(&self) -> &'static str {
         match self.editor.as_ref().map(|e| e.source) {
-            Some(Source::Scratch(_)) => "Save to Patch Scratchpad",
+            Some(Source::Scratch(_)) => "Save to Patch Library",
             _ => "Store to EWI",
         }
     }
@@ -669,15 +673,13 @@ impl App {
                         ed.unedited = patch.clone();
                         let name = patch.name();
                         match self.scratch.replace(ix, patch) {
-                            Ok(()) => {
-                                self.set_status(format!("{name} saved to the Patch Scratchpad"))
-                            }
+                            Ok(()) => self.set_status(format!("{name} saved to the Patch Library")),
                             Err(e) => self.scratch_save_error(e),
                         }
                     }
                     Source::Detached => self.set_status(
-                        "This patch was deleted from the Patch Scratchpad; \
-                         use Copy to Patch Scratchpad to keep it",
+                        "This patch was deleted from the Patch Library; \
+                         use Copy to Patch Library to keep it",
                     ),
                 }
                 return;
@@ -1030,7 +1032,7 @@ impl App {
                     }
                     let copy_key =
                         ctx.format_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::C));
-                    let copy = Button::new("Copy to Patch Scratchpad").shortcut_text(copy_key);
+                    let copy = Button::new("Copy to Patch Library").shortcut_text(copy_key);
                     if ui.add(copy).clicked() {
                         cmd = edit(EditOp::CopyToScratchpad);
                     }
@@ -1241,15 +1243,15 @@ impl App {
                     ui.spacing_mut().item_spacing.x = 2.0;
                     ui.spacing_mut().button_padding = egui::vec2(14.0, 6.0);
                     for (tab, label, enabled) in [
-                        (Tab::Scratchpad, "Patch Scratchpad", true),
-                        (Tab::Library, "Patch Set Library", true),
+                        (Tab::Scratchpad, "Patch Library", true),
+                        (Tab::Library, "Patch Sets", true),
                         (Tab::CurrentSet, "Current Patch Set", loaded),
                         (Tab::Editor, "Patch Editor", editing),
                     ] {
                         let r = ui.add_enabled(enabled, Button::selectable(self.tab == tab, label));
                         let r = r.on_disabled_hover_text(
-                            "Load a patch set first (Patch Set Library tab), or open a \
-                     Patch Scratchpad patch",
+                            "Load a patch set first (Patch Sets tab), or open a \
+                     Patch Library patch",
                         );
                         if r.clicked() && self.tab != tab {
                             picked = Some(tab);
@@ -1284,10 +1286,7 @@ impl App {
                     "MIDI Out",
                     self.midi.out_name().unwrap_or("Not set").to_string(),
                 ),
-                (
-                    "Patch Scratchpad:",
-                    format!("{} patches", self.scratch.len()),
-                ),
+                ("Patch Library:", format!("{} patches", self.scratch.len())),
             ] {
                 ui.label(RichText::new(label).weak());
                 ui.label(value);
@@ -1311,8 +1310,8 @@ impl App {
         if !self.scratch.is_persistent() {
             ui.colored_label(
                 ui.visuals().warn_fg_color,
-                "No library folder chosen, so the Patch Scratchpad won't be saved. \
-                 Choose one on the Patch Set Library tab.",
+                "No library folder chosen, so the Patch Library won't be saved. \
+                 Choose one on the Patch Sets tab.",
             );
         }
         let names: Vec<String> = self.scratch.patches().iter().map(Patch::name).collect();
@@ -1362,8 +1361,8 @@ impl App {
             }
             (Some("Clear"), _) => {
                 self.dialog = Some(Dialog::Confirm {
-                    title: "Clear Patch Scratchpad".into(),
-                    text: "Do you really want to clear the Patch Scratchpad?".into(),
+                    title: "Clear Patch Library".into(),
+                    text: "Do you really want to clear the Patch Library?".into(),
                     action: Confirm::ClearScratchpad,
                 })
             }
@@ -1377,7 +1376,7 @@ impl App {
             (Some("Rename…"), Some(i)) => {
                 self.dialog = Some(Dialog::Input {
                     title: "Rename".into(),
-                    prompt: "New name for this Patch Scratchpad patch:".into(),
+                    prompt: "New name for this Patch Library patch:".into(),
                     value: name,
                     action: Input::RenameScratch(i),
                 })
@@ -1402,7 +1401,7 @@ impl App {
     fn library_tab(&mut self, ui: &mut Ui) {
         let (mut change, mut rescan) = (false, false);
         ui.horizontal(|ui| {
-            ui.label("Patch Set Library location:");
+            ui.label("Library folder:");
             match self.prefs.library() {
                 Some(dir) => ui.strong(dir.display().to_string()),
                 None => ui.strong("<Not Chosen>"),
@@ -1428,7 +1427,7 @@ impl App {
 
         ui.columns(2, |cols| {
             let ui = &mut cols[0];
-            ui.label(theme::title("Patch Sets", 15.0))
+            ui.label(theme::title("Sets in this folder", 15.0))
                 .on_hover_text("Double-click a set to load it");
             set_clicked = select_list(ui, "sets", &self.library.sets, set_sel, list_h);
             ui.horizontal(|ui| {
@@ -1449,11 +1448,11 @@ impl App {
             });
 
             let ui = &mut cols[1];
-            ui.label(theme::title("Patches", 15.0));
+            ui.label(theme::title("Patches in this set", 15.0));
             patch_clicked = select_list(ui, "set_patches", &patch_names, patch_sel, list_h);
             ui.horizontal(|ui| {
                 copy = ui
-                    .add_enabled(patch_sel.is_some(), Button::new("Copy to Patch Scratchpad"))
+                    .add_enabled(patch_sel.is_some(), Button::new("Copy to Patch Library"))
                     .clicked();
                 preview = ui
                     .add_enabled(patch_sel.is_some(), Button::new("Preview"))
@@ -1630,8 +1629,8 @@ impl App {
                 .unwrap_or_default();
             let text = match (source, &self.bank) {
                 (Some(Source::Slot(s)), Some(bank)) => format!("{s} - {}", bank.name(s)),
-                (Some(Source::Scratch(_)), _) => format!("Patch Scratchpad: {ed_name}"),
-                (Some(Source::Detached), _) => format!("{ed_name} (deleted from Patch Scratchpad)"),
+                (Some(Source::Scratch(_)), _) => format!("Patch Library: {ed_name}"),
+                (Some(Source::Detached), _) => format!("{ed_name} (deleted from Patch Library)"),
                 _ => "Choose a patch…".to_string(),
             };
             let combo = ComboBox::from_id_salt("editor_patch")
@@ -1812,21 +1811,19 @@ impl App {
                         .unwrap_or_default();
                     ui.heading("Unsaved Edits");
                     ui.label(if to_scratch {
-                        format!(
-                            "You've edited \"{name}\". Save the changes to the Patch Scratchpad?"
-                        )
+                        format!("You've edited \"{name}\". Save the changes to the Patch Library?")
                     } else {
                         format!(
                             "You've edited \"{name}\" without storing it. Copy the edited \
-                             patch to the Patch Scratchpad?"
+                             patch to the Patch Library?"
                         )
                     });
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         let copy_label = if to_scratch {
-                            "Save to Patch Scratchpad"
+                            "Save to Patch Library"
                         } else {
-                            "Copy to Patch Scratchpad"
+                            "Copy to Patch Library"
                         };
                         if ui.add(theme::primary_button(ui, copy_label)).clicked() {
                             action = Some(Action::LeaveEditor { copy: true, after });
@@ -1907,7 +1904,7 @@ impl App {
                             .labelled_by(label);
                     });
                     ui.horizontal(|ui| {
-                        let label = ui.label("Patch Scratchpad patch to paste:").id;
+                        let label = ui.label("Patch Library patch to paste:").id;
                         let names: Vec<String> =
                             self.scratch.patches().iter().map(Patch::name).collect();
                         let text = paste
@@ -1932,10 +1929,10 @@ impl App {
                         if !empty && ui.button("Preview").on_hover_text(PREVIEW_HELP).clicked() {
                             preview_slot = Some(slot);
                         }
-                        if !empty && ui.button("Copy to Patch Scratchpad").clicked() {
+                        if !empty && ui.button("Copy to Patch Library").clicked() {
                             action = Some(Action::CopyToScratchpad(slot));
                         }
-                        if ui.button("Paste from Patch Scratchpad").clicked() {
+                        if ui.button("Paste from Patch Library").clicked() {
                             action = Some(Action::Paste { slot, from: *paste });
                         }
                         if !empty && ui.button("Rename").clicked() {
@@ -2067,7 +2064,7 @@ impl App {
             }
             Action::Paste { slot, from } => {
                 let Some(patch) = from.and_then(|i| self.scratch.patches().get(i)).cloned() else {
-                    self.message("Paste", "Choose a Patch Scratchpad patch to paste first.");
+                    self.message("Paste", "Choose a Patch Library patch to paste first.");
                     return;
                 };
                 let Some(bank) = &mut self.bank else { return };
@@ -2124,7 +2121,7 @@ impl App {
                             let name = patch.name();
                             match self.scratch.replace(ix, patch) {
                                 Ok(()) => {
-                                    self.set_status(format!("{name} saved to the Patch Scratchpad"))
+                                    self.set_status(format!("{name} saved to the Patch Library"))
                                 }
                                 Err(e) => self.scratch_save_error(e),
                             }
@@ -2151,7 +2148,7 @@ impl App {
         let dir = self
             .prefs
             .library()
-            .ok_or("Choose a Patch Set Library location first (Patch Set Library tab).")?;
+            .ok_or("Choose a library folder first (Patch Sets tab).")?;
         let mut name = input.trim().to_string();
         if name.contains(['/', '\\']) {
             return Err("The file name can't contain / or \\.".into());

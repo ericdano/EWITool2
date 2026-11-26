@@ -66,7 +66,7 @@ impl NativeMenu {
         );
         let revert = item("Revert Edits", Command::Edit(EditOp::Revert), None);
         let copy = item(
-            "Copy to Patch Scratchpad",
+            "Copy to Patch Library",
             Command::Edit(EditOp::CopyToScratchpad),
             None,
         );

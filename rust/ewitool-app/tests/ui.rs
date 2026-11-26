@@ -89,7 +89,7 @@ fn walk_through_every_screen() {
     shot(&mut h, "1-scratchpad");
 
     // Library: pick the set and load it.
-    h.get_by_label("Patch Set Library").click();
+    h.get_by_label("Patch Sets").click();
     h.run();
     h.get_by_label("Demo Set.syx").click();
     h.run();
@@ -109,7 +109,7 @@ fn walk_through_every_screen() {
     // Patch actions dialog, then edit.
     h.get_by_label("Warm Pad").click();
     h.run();
-    h.get_by_label("Paste from Patch Scratchpad");
+    h.get_by_label("Paste from Patch Library");
     shot(&mut h, "5-patch-actions");
     h.get_by_label("Edit").click();
     h.run();
@@ -154,13 +154,13 @@ fn copy_from_library_to_scratchpad_persists() {
     let lib = sample_library();
     let mut h = harness(lib.path());
     h.run();
-    h.get_by_label("Patch Set Library").click();
+    h.get_by_label("Patch Sets").click();
     h.run();
     h.get_by_label("Demo Set.syx").click();
     h.run();
     h.get_by_label("Flute").click();
     h.run();
-    h.get_by_label("Copy to Patch Scratchpad").click();
+    h.get_by_label("Copy to Patch Library").click();
     h.run();
 
     let saved = patch_set::load_syx(&lib.path().join(SCRATCHPAD_NAME)).unwrap();
@@ -173,7 +173,7 @@ fn save_current_set_to_library() {
     let lib = sample_library();
     let mut h = harness(lib.path());
     h.run();
-    h.get_by_label("Patch Set Library").click();
+    h.get_by_label("Patch Sets").click();
     h.run();
     h.get_by_label("Demo Set.syx").click();
     h.run();
@@ -196,7 +196,7 @@ fn save_current_set_to_library() {
 
 /// Open the editor on "Warm Pad" (shared by the tests below).
 fn open_editor(h: &mut Harness<'_, App>) {
-    h.get_by_label("Patch Set Library").click();
+    h.get_by_label("Patch Sets").click();
     h.run();
     h.get_by_label("Demo Set.syx").click();
     h.run();
@@ -283,7 +283,7 @@ fn edit_a_scratchpad_patch_and_save_it_when_leaving() {
     let mut h = harness(lib.path());
     h.run();
 
-    // Open a Patch Scratchpad patch; no patch set needs to be loaded.
+    // Open a Patch Library patch; no patch set needs to be loaded.
     let pos = h.get_by_label("Clarinet").rect().center();
     double_click(&mut h, pos);
     h.get_by_label("Oscillator 1"); // the editor opened
@@ -295,11 +295,11 @@ fn edit_a_scratchpad_patch_and_save_it_when_leaving() {
     h.run();
     h.get_by_label("Default Patch").click();
     h.run();
-    h.get_by_label("Patch Set Library").click();
+    h.get_by_label("Patch Sets").click();
     h.run();
     h.get_by_label("Unsaved Edits");
     shot(&mut h, "13-unsaved-edits");
-    h.get_by_label("Save to Patch Scratchpad").click();
+    h.get_by_label("Save to Patch Library").click();
     h.run();
 
     // Left the editor, and the edited patch replaced the original entry.
@@ -312,7 +312,7 @@ fn edit_a_scratchpad_patch_and_save_it_when_leaving() {
     // Going back and leaving again doesn't ask a second time.
     h.get_by_label("Patch Editor").click();
     h.run();
-    h.get_by_label("Patch Set Library").click();
+    h.get_by_label("Patch Sets").click();
     h.run();
     assert!(h.query_by_label("Unsaved Edits").is_none());
 }
@@ -330,9 +330,9 @@ fn leaving_edited_ewi_patch_offers_a_copy() {
     h.get_by_label("Default Patch").click();
     h.run();
 
-    h.get_by_label("Patch Scratchpad").click();
+    h.get_by_label("Patch Library").click();
     h.run();
-    h.get_by_label("Copy to Patch Scratchpad").click();
+    h.get_by_label("Copy to Patch Library").click();
     h.run();
     let saved = patch_set::load_syx(&lib.path().join(SCRATCHPAD_NAME)).unwrap();
     let names: Vec<String> = saved.iter().map(Patch::name).collect();
@@ -379,7 +379,7 @@ fn double_click_set_offers_to_load_it() {
     let lib = sample_library();
     let mut h = harness(lib.path());
     h.run();
-    h.get_by_label("Patch Set Library").click();
+    h.get_by_label("Patch Sets").click();
     h.run();
     let pos = h.get_by_label("Demo Set.syx").rect().center();
     double_click(&mut h, pos);
@@ -395,7 +395,7 @@ fn rescan_finds_new_sets_and_keeps_selection() {
     let lib = sample_library();
     let mut h = harness(lib.path());
     h.run();
-    h.get_by_label("Patch Set Library").click();
+    h.get_by_label("Patch Sets").click();
     h.run();
     h.get_by_label("Demo Set.syx").click();
     h.run();
@@ -459,7 +459,7 @@ fn preview_a_library_patch() {
     let lib = sample_library();
     let mut h = harness(lib.path());
     h.run();
-    h.get_by_label("Patch Set Library").click();
+    h.get_by_label("Patch Sets").click();
     h.run();
     h.get_by_label("Demo Set.syx").click();
     h.run();
@@ -491,7 +491,7 @@ fn editor_preview_plays_until_stopped_or_left() {
     // Leaving the editor stops a repeating preview.
     h.get_by_label("▶ Play").click();
     h.run();
-    h.get_by_label("Patch Scratchpad").click();
+    h.get_by_label("Patch Library").click();
     h.run();
     assert!(!h.state().previewing().unwrap().1);
 }
