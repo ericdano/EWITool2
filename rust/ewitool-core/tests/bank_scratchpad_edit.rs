@@ -37,6 +37,36 @@ fn bank_places_patches_by_internal_number() {
 }
 
 #[test]
+fn clearing_a_slot_leaves_it_empty() {
+    let mut bank = Bank::from_patches([numbered("Zero", 99), numbered("One", 0)]);
+    let removed = bank.clear(1).unwrap();
+    assert_eq!(removed.name(), "One");
+    assert!(bank.get(1).is_none());
+    assert_eq!(bank.name(1), ewitool_core::bank::EMPTY_NAME);
+    assert_eq!(bank.len(), 1);
+    assert!(bank.clear(1).is_none(), "already empty");
+    assert!(bank.clear(500).is_none(), "out of range");
+}
+
+#[test]
+fn blank_patch_is_a_valid_default_sound_named_empty() {
+    let template = patch("Lead", 7);
+    let blank = edit::blank_patch(&template);
+    assert_eq!(blank.name(), ewitool_core::bank::EMPTY_NAME);
+    // Same framing (header, NRPN prefixes, number) as the template ...
+    assert_eq!(blank.header, template.header);
+    assert_eq!(blank.osc1.nrpn, template.osc1.nrpn);
+    assert_eq!(blank.internal_num, template.internal_num);
+    // ... with the default sound.
+    let mut expected = template.clone();
+    edit::default_patch(&mut expected);
+    expected.set_name(ewitool_core::bank::EMPTY_NAME).unwrap();
+    assert_eq!(blank, expected);
+    // And it survives the sysex round trip.
+    assert_eq!(Patch::from_bytes(&blank.to_bytes()).unwrap(), blank);
+}
+
+#[test]
 fn bank_round_trips_a_saved_set() {
     let set: Vec<Patch> = (0..NUM_PATCHES as u8)
         .map(|i| numbered(&format!("P{i}"), user_to_internal(i).unwrap()))

@@ -106,6 +106,18 @@ pub fn default_patch(p: &mut Patch) {
     p.amp.octave_level = 36; // seems to be the device default
 }
 
+/// The patch stored in an EWI slot that EWITool2 shows as empty (the EWI
+/// can't leave a slot empty): the default sound, named
+/// [`crate::bank::EMPTY_NAME`]. `template` supplies the sysex framing and
+/// filler bytes; its sound and name are replaced.
+pub fn blank_patch(template: &Patch) -> Patch {
+    let mut p = template.clone();
+    default_patch(&mut p);
+    p.set_name(crate::bank::EMPTY_NAME)
+        .expect("EMPTY_NAME is a valid patch name");
+    p
+}
+
 fn randomise_osc(rng: &mut fastrand::Rng, o: &mut Osc, min_level: u8) {
     for v in [
         &mut o.fine,

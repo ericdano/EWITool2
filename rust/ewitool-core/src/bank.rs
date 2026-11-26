@@ -6,6 +6,10 @@
 
 use crate::patch::{internal_to_user, user_to_internal, Patch, NUM_PATCHES};
 
+/// How an empty slot is shown, and the name of the blank patch stored in
+/// the EWI for it (see [`crate::edit::blank_patch`]).
+pub const EMPTY_NAME: &str = "<Empty>";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bank {
     slots: Vec<Option<Patch>>,
@@ -65,10 +69,15 @@ impl Bank {
         }
     }
 
-    /// Display name for a slot: the patch name, or `<Empty>`.
+    /// Empty a slot, returning the patch that was there.
+    pub fn clear(&mut self, slot: usize) -> Option<Patch> {
+        self.slots.get_mut(slot)?.take()
+    }
+
+    /// Display name for a slot: the patch name, or [`EMPTY_NAME`].
     pub fn name(&self, slot: usize) -> String {
         self.get(slot)
-            .map_or_else(|| "<Empty>".to_string(), Patch::name)
+            .map_or_else(|| EMPTY_NAME.to_string(), Patch::name)
     }
 
     /// The stored patches in slot order, skipping empty slots.

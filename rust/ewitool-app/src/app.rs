@@ -32,6 +32,9 @@ const ONLINE_HELP: &str = "https://github.com/ledhed2222/EWItool/wiki/Using-EWIt
 const STATUS_TIMEOUT: Duration = Duration::from_secs(10);
 const PREVIEW_HELP: &str = "Hear this patch on the computer, using EWITool2's model of the \
      EWI4000s sound engine (an approximation; no EWI needed).";
+/// How long a dragged patch must be held over another before dropping it
+/// offers to copy instead of swapping.
+const HOLD_TO_COPY: f64 = 0.9;
 const NEED_EWI: &str = "Choose your EWI's ports in MIDI ▸ Ports… first";
 /// How long to wait for the EWI to answer an identity request (as Java).
 const ID_TIMEOUT: Duration = Duration::from_secs(3);
@@ -203,6 +206,11 @@ enum Dialog {
     Merge {
         selected: Option<usize>,
     },
+    /// A patch dropped on another after being held there: copy or swap?
+    DropChoice {
+        from: usize,
+        to: usize,
+    },
     About,
     UnsavedEdits {
         after: After,
@@ -218,6 +226,8 @@ enum Dialog {
 #[derive(Clone, Copy)]
 enum Confirm {
     ClearScratchpad,
+    /// Empty a Current Patch Set slot.
+    DeleteSlot(usize),
     LoadSet,
     DeleteSet,
 }
@@ -244,6 +254,12 @@ enum Action {
         name: String,
     },
     MergeWith(usize),
+    SwapSlots(usize, usize),
+    CopySlot {
+        from: usize,
+        to: usize,
+    },
+    AskDeleteSlot(usize),
     LeaveEditor {
         copy: bool,
         after: After,
@@ -288,6 +304,15 @@ pub struct App {
     native_menu: Option<crate::native_menu::NativeMenu>,
     /// The Preferences window is showing.
     prefs_open: bool,
+    /// The highlighted slot in the Current Patch Set.
+    bank_sel: Option<usize>,
+    /// While dragging a patch: the slot it is over and since when (egui
+    /// input time, seconds); holding it there long enough offers to copy
+    /// instead of swap.
+    drag_over: Option<(usize, f64)>,
+    /// Last click on a slot (egui input time), to spot double-clicks: egui
+    /// doesn't report them on buttons that can also be dragged.
+    last_slot_click: Option<(usize, f64)>,
     /// Plays patches on the computer's speakers.
     audio: Audition,
 }
@@ -355,6 +380,9 @@ impl App {
             bulk_total: None,
             theme_applied: false,
             prefs_open: false,
+            bank_sel: None,
+            drag_over: None,
+            last_slot_click: None,
             audio: Audition::new(),
             #[cfg(target_os = "macos")]
             native_menu: None,
@@ -1510,11 +1538,13 @@ impl App {
     fn current_set_tab(&mut self, ui: &mut Ui) {
         let Some(bank) = &self.bank else { return };
         let note = if self.ewi_ready() {
-            "Click a patch for actions, or drag one onto another to swap them. \
-             Changes are sent to the EWI straight away."
+            "Click a patch to select it, double-click for actions. Drag a patch onto \
+             another to swap them, or hold it there to copy it instead. Changes are \
+             sent to the EWI straight away."
         } else {
-            "Click a patch for actions, or drag one onto another to swap them. \
-             Not connected to an EWI4000s: changes stay in EWITool2."
+            "Click a patch to select it, double-click for actions. Drag a patch onto \
+             another to swap them, or hold it there to copy it instead. Not connected \
+             to an EWI4000s: changes stay in EWITool2."
         };
         ui.label(RichText::new(note).weak());
         let spacing = egui::vec2(6.0, 4.0);
@@ -1523,8 +1553,11 @@ impl App {
         let col_w =
             ((ui.available_width() - 5.0 * label_w - 9.0 * spacing.x - 4.0) / 5.0).max(60.0);
         let row_h = ((ui.available_height() - 50.0) / 20.0 - spacing.y).clamp(16.0, 60.0);
+        let sel = self.bank_sel;
         let mut clicked = None;
-        let mut swap = None;
+        let mut double = None;
+        let mut dropped = None;
+        let mut over = None;
 
         egui::Grid::new("bank_grid")
             .num_columns(10)
@@ -1538,9 +1571,16 @@ impl App {
                             [label_w, row_h],
                             egui::Label::new(RichText::new(ix.to_string()).weak()),
                         );
+                        // Only real patches can be dragged.
+                        let sense = if bank.get(ix).is_some() {
+                            Sense::click_and_drag()
+                        } else {
+                            Sense::click()
+                        };
                         let button = Button::new(bank.name(ix))
                             .truncate()
-                            .sense(Sense::click_and_drag());
+                            .selected(sel == Some(ix))
+                            .sense(sense);
                         let r = ui.add_sized([col_w, row_h], button);
                         if r.drag_started() {
                             egui::DragAndDrop::set_payload(ui.ctx(), ix);
@@ -1549,17 +1589,11 @@ impl App {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
                         }
                         if r.dnd_hover_payload::<usize>().is_some_and(|src| *src != ix) {
-                            let stroke = Stroke::new(2.0, ui.visuals().selection.stroke.color);
-                            ui.painter().rect_stroke(
-                                r.rect,
-                                3.0,
-                                stroke,
-                                egui::StrokeKind::Outside,
-                            );
+                            over = Some((ix, r.rect));
                         }
                         if let Some(src) = r.dnd_release_payload::<usize>() {
                             if *src != ix {
-                                swap = Some((*src, ix));
+                                dropped = Some((*src, ix));
                             }
                         }
                         if r.clicked() {
@@ -1570,38 +1604,101 @@ impl App {
                 }
             });
 
-        let save = ui.button("Save to Library…").clicked();
+        // Dragging: outline the target; after holding, offer to copy.
+        let now = ui.input(|i| i.time);
+        // Judged from before this frame: on the frame the button is released
+        // the target may no longer report the hover.
+        let held_on = |slot: usize, state: Option<(usize, f64)>| {
+            state.is_some_and(|(s, since)| s == slot && now - since >= HOLD_TO_COPY)
+        };
+        let before = self.drag_over;
+        let held = match (over, self.drag_over) {
+            (Some((ix, _)), Some((prev, since))) if prev == ix => now - since >= HOLD_TO_COPY,
+            (Some((ix, _)), _) => {
+                self.drag_over = Some((ix, now));
+                false
+            }
+            (None, _) => {
+                self.drag_over = None;
+                false
+            }
+        };
+        if let Some((_, rect)) = over {
+            let (colour, hint) = if held {
+                (ui.visuals().warn_fg_color, "Release to copy or swap")
+            } else {
+                (
+                    ui.visuals().selection.stroke.color,
+                    "Release to swap · hold to copy",
+                )
+            };
+            ui.painter().rect_stroke(
+                rect,
+                3.0,
+                Stroke::new(2.0, colour),
+                egui::StrokeKind::Outside,
+            );
+            egui::Tooltip::always_open(
+                ui.ctx().clone(),
+                ui.layer_id(),
+                egui::Id::unique("drag_hint"),
+                egui::PopupAnchor::Pointer,
+            )
+            .show(|ui| ui.label(hint));
+            if !held {
+                ui.ctx().request_repaint_after(Duration::from_millis(50));
+            }
+        }
 
-        if let Some((a, b)) = swap {
-            let bank = self.bank.as_mut().unwrap();
-            bank.swap(a, b);
-            for slot in [a, b] {
-                if let Some(p) = bank.get(slot) {
-                    self.patch_out.push((p.clone(), Mode::Save));
-                }
+        let selected_full = sel.is_some_and(|s| bank.get(s).is_some());
+        let (mut actions, mut delete, mut save) = (false, false, false);
+        ui.horizontal(|ui| {
+            actions = ui
+                .add_enabled(sel.is_some(), Button::new("Actions…"))
+                .on_hover_text("Edit, copy, paste or rename the selected patch")
+                .clicked();
+            delete = ui
+                .add_enabled(selected_full, Button::new("Delete"))
+                .on_hover_text("Empty the selected slot (Delete key)")
+                .clicked();
+            save = ui.button("Save to Library…").clicked();
+        });
+        // Delete/Backspace deletes the selection, unless typing somewhere.
+        let delete_key = ui.input(|i| i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace));
+        if delete_key && self.dialog.is_none() && !ui.ctx().egui_wants_keyboard_input() {
+            delete |= selected_full;
+        }
+
+        if let Some((from, to)) = dropped {
+            self.drag_over = None;
+            if held_on(to, before) {
+                self.dialog = Some(Dialog::DropChoice { from, to });
+            } else {
+                self.run(Action::SwapSlots(from, to));
             }
-            if let Some(ed) = &mut self.editor {
-                if ed.source == Source::Slot(a) {
-                    ed.source = Source::Slot(b);
-                } else if ed.source == Source::Slot(b) {
-                    ed.source = Source::Slot(a);
-                }
-            }
-            self.set_status(format!("Patches {a} and {b} swapped"));
         }
         if let Some(slot) = clicked {
-            let name = self
-                .bank
-                .as_ref()
-                .unwrap()
-                .get(slot)
-                .map(Patch::name)
-                .unwrap_or_default();
-            self.dialog = Some(Dialog::PatchActions {
-                slot,
-                name,
-                paste: None,
-            });
+            let delay = ui.ctx().options(|o| o.input_options.max_double_click_delay);
+            let second = self
+                .last_slot_click
+                .is_some_and(|(s, t)| s == slot && now - t <= delay);
+            if second {
+                double = Some(slot);
+                self.last_slot_click = None;
+            } else {
+                self.last_slot_click = Some((slot, now));
+            }
+            self.bank_sel = Some(slot);
+        }
+        if let Some(slot) = double {
+            self.bank_sel = Some(slot);
+            self.open_patch_actions(slot);
+        }
+        if let (true, Some(slot)) = (actions, sel) {
+            self.open_patch_actions(slot);
+        }
+        if let (true, Some(slot)) = (delete, sel) {
+            self.run(Action::AskDeleteSlot(slot));
         }
         if save {
             self.dialog = Some(Dialog::Input {
@@ -1611,6 +1708,92 @@ impl App {
                 action: Input::SaveBank,
             });
         }
+    }
+
+    fn open_patch_actions(&mut self, slot: usize) {
+        let name = self
+            .bank
+            .as_ref()
+            .and_then(|b| b.get(slot))
+            .map(Patch::name)
+            .unwrap_or_default();
+        self.dialog = Some(Dialog::PatchActions {
+            slot,
+            name,
+            paste: None,
+        });
+    }
+
+    /// Send a slot to the EWI as it now is; an empty slot is stored as a
+    /// blank patch, since the EWI can't leave a slot empty. `template`
+    /// supplies the sysex framing for a blank.
+    fn send_slot(&mut self, slot: usize, template: &Patch) {
+        let Some(bank) = &self.bank else { return };
+        let mut patch = match bank.get(slot) {
+            Some(p) => p.clone(),
+            None => edit::blank_patch(template),
+        };
+        patch.internal_num = ewitool_core::patch::user_to_internal(slot as u8).unwrap();
+        self.patch_out.push((patch, Mode::Save));
+    }
+
+    fn swap_slots(&mut self, a: usize, b: usize) {
+        let Some(bank) = &mut self.bank else { return };
+        // At least one of the two holds a patch (only patches can be dragged).
+        let Some(template) = bank.get(a).or(bank.get(b)).cloned() else {
+            return;
+        };
+        bank.swap(a, b);
+        for slot in [a, b] {
+            self.send_slot(slot, &template);
+        }
+        if let Some(ed) = &mut self.editor {
+            if ed.source == Source::Slot(a) {
+                ed.source = Source::Slot(b);
+            } else if ed.source == Source::Slot(b) {
+                ed.source = Source::Slot(a);
+            }
+        }
+        if self.bank_sel == Some(a) {
+            self.bank_sel = Some(b);
+        } else if self.bank_sel == Some(b) {
+            self.bank_sel = Some(a);
+        }
+        self.set_status(format!("Patches {a} and {b} swapped"));
+    }
+
+    fn copy_slot(&mut self, from: usize, to: usize) {
+        let Some(bank) = &mut self.bank else { return };
+        let Some(patch) = bank.get(from).cloned() else {
+            return;
+        };
+        let name = patch.name();
+        bank.set(to, patch.clone());
+        self.send_slot(to, &patch);
+        if self
+            .editor
+            .as_ref()
+            .is_some_and(|e| e.source == Source::Slot(to))
+        {
+            self.open_slot_editor(to);
+        }
+        self.bank_sel = Some(to);
+        self.set_status(format!("{name} copied from patch #{from} to #{to}"));
+    }
+
+    fn delete_slot(&mut self, slot: usize) {
+        let Some(removed) = self.bank.as_mut().and_then(|b| b.clear(slot)) else {
+            return;
+        };
+        self.send_slot(slot, &removed);
+        if self
+            .editor
+            .as_ref()
+            .is_some_and(|e| e.source == Source::Slot(slot))
+        {
+            self.editor = None;
+        }
+        self.set_status(format!("{} deleted from patch #{slot}", removed.name()));
     }
 
     fn editor_tab(&mut self, ui: &mut Ui) {
@@ -1935,11 +2118,36 @@ impl App {
                         if ui.button("Paste from Patch Library").clicked() {
                             action = Some(Action::Paste { slot, from: *paste });
                         }
+                        if !empty && ui.button("Delete").clicked() {
+                            action = Some(Action::AskDeleteSlot(slot));
+                        }
                         if !empty && ui.button("Rename").clicked() {
                             action = Some(Action::Rename {
                                 slot,
                                 name: name.clone(),
                             });
+                        }
+                        if ui.button("Cancel").clicked() {
+                            close = true;
+                        }
+                    });
+                }
+                Dialog::DropChoice { from, to } => {
+                    let (from, to) = (*from, *to);
+                    let name = |slot| self.bank.as_ref().map(|b| b.name(slot)).unwrap_or_default();
+                    ui.heading("Copy or Swap?");
+                    ui.label(format!(
+                        "Copy \"{}\" (#{from}) over \"{}\" (#{to}), or swap the two?",
+                        name(from),
+                        name(to)
+                    ));
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(format!("Copy over #{to}")).clicked() {
+                            action = Some(Action::CopySlot { from, to });
+                        }
+                        if ui.button("Swap").clicked() {
+                            action = Some(Action::SwapSlots(from, to));
                         }
                         if ui.button("Cancel").clicked() {
                             close = true;
@@ -1984,6 +2192,38 @@ impl App {
 
     fn run(&mut self, action: Action) {
         match action {
+            Action::SwapSlots(a, b) => self.swap_slots(a, b),
+            Action::CopySlot { from, to } => self.copy_slot(from, to),
+            Action::AskDeleteSlot(slot) => {
+                let Some(name) = self
+                    .bank
+                    .as_ref()
+                    .and_then(|b| b.get(slot))
+                    .map(Patch::name)
+                else {
+                    return;
+                };
+                let mut text = format!("Delete \"{name}\" from patch #{slot}, leaving it empty?");
+                if self.ewi_ready() {
+                    text.push_str(&format!(
+                        " On the EWI, #{slot} will hold a plain default sound named \"{}\".",
+                        ewitool_core::bank::EMPTY_NAME
+                    ));
+                }
+                if self
+                    .editor
+                    .as_ref()
+                    .is_some_and(|e| e.source == Source::Slot(slot))
+                {
+                    text.push_str(" It is open in the Patch Editor, which will close.");
+                }
+                self.dialog = Some(Dialog::Confirm {
+                    title: "Delete Patch".into(),
+                    text,
+                    action: Confirm::DeleteSlot(slot),
+                });
+            }
+            Action::Confirmed(Confirm::DeleteSlot(slot)) => self.delete_slot(slot),
             Action::Confirmed(Confirm::ClearScratchpad) => {
                 self.scratch_sel = None;
                 self.scratch_entry_removed(None);

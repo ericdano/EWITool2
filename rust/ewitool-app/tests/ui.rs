@@ -107,7 +107,10 @@ fn walk_through_every_screen() {
     shot(&mut h, "4-current-set");
 
     // Patch actions dialog, then edit.
+    // Click selects a patch; Actions… (or a double-click) opens its dialog.
     h.get_by_label("Warm Pad").click();
+    h.run();
+    h.get_by_label("Actions…").click();
     h.run();
     h.get_by_label("Paste from Patch Library");
     shot(&mut h, "5-patch-actions");
@@ -204,7 +207,10 @@ fn open_editor(h: &mut Harness<'_, App>) {
     h.run();
     h.get_by_label("OK").click();
     h.run();
+    // Click selects a patch; Actions… (or a double-click) opens its dialog.
     h.get_by_label("Warm Pad").click();
+    h.run();
+    h.get_by_label("Actions…").click();
     h.run();
     h.get_by_label("Edit").click();
     h.run();
@@ -494,4 +500,174 @@ fn editor_preview_plays_until_stopped_or_left() {
     h.get_by_label("Patch Library").click();
     h.run();
     assert!(!h.state().previewing().unwrap().1);
+}
+
+/// Load the demo set into the Current Patch Set tab.
+fn load_demo_set(h: &mut Harness<'_, App>) {
+    h.get_by_label("Patch Sets").click();
+    h.run();
+    h.get_by_label("Demo Set.syx").click();
+    h.run();
+    h.get_by_label("Load into EWI").click();
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+}
+
+/// Drag with the mouse from one point to another, holding over the target
+/// for `hold_frames` frames (1/60 s each) before letting go.
+fn drag(h: &mut Harness<'_, App>, from: egui::Pos2, to: egui::Pos2, hold_frames: usize) {
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::default(),
+    };
+    h.hover_at(from);
+    h.step();
+    h.event(button(from, true));
+    h.step();
+    for i in 1..=10 {
+        let pos = from + (to - from) * (i as f32 / 10.0);
+        h.event(egui::Event::PointerMoved(pos));
+        h.step();
+    }
+    for _ in 0..hold_frames {
+        h.event(egui::Event::PointerMoved(to));
+        h.step();
+    }
+    h.event(button(to, false));
+    h.step();
+    h.run();
+}
+
+fn centre(h: &Harness<'_, App>, label: &str) -> egui::Pos2 {
+    h.get_by_label(label).rect().center()
+}
+
+#[test]
+fn drag_swaps_and_holding_offers_to_copy() {
+    let lib = sample_library();
+    let mut h = harness(lib.path());
+    h.run();
+    load_demo_set(&mut h);
+
+    // A quick drop swaps: Sax Lead (#0) and Warm Pad (#1) change places.
+    let (sax, pad) = (centre(&h, "Sax Lead"), centre(&h, "Warm Pad"));
+    drag(&mut h, sax, pad, 2);
+    assert!(h.query_by_label("Copy or Swap?").is_none());
+    assert!(centre(&h, "Warm Pad").y < centre(&h, "Sax Lead").y);
+
+    // Holding over the target offers to copy instead.
+    let (flute, brass) = (centre(&h, "Flute"), centre(&h, "Brass Stab"));
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::default(),
+    };
+    h.hover_at(flute);
+    h.step();
+    h.event(button(flute, true));
+    h.step();
+    for i in 1..=10 {
+        h.event(egui::Event::PointerMoved(
+            flute + (brass - flute) * (i as f32 / 10.0),
+        ));
+        h.step();
+    }
+    h.get_by_label("Release to swap · hold to copy");
+    for _ in 0..70 {
+        h.event(egui::Event::PointerMoved(brass));
+        h.step();
+    }
+    h.get_by_label("Release to copy or swap");
+    shot(&mut h, "15-hold-to-copy");
+    h.event(button(brass, false));
+    h.step();
+    h.run();
+    h.get_by_label("Copy or Swap?");
+    shot(&mut h, "16-copy-or-swap");
+    h.get_by_label("Copy over #3").click();
+    h.run();
+    assert_eq!(h.query_all_by_label("Flute").count(), 2);
+    assert!(h.query_by_label("Brass Stab").is_none());
+}
+
+#[test]
+fn held_drop_can_still_swap_or_cancel() {
+    let lib = sample_library();
+    let mut h = harness(lib.path());
+    h.run();
+    load_demo_set(&mut h);
+    let (synth, oboe) = (centre(&h, "Synth Bass"), centre(&h, "Oboe"));
+    drag(&mut h, synth, oboe, 70);
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert!(
+        centre(&h, "Synth Bass").y < centre(&h, "Oboe").y,
+        "unchanged"
+    );
+    drag(&mut h, synth, oboe, 70);
+    h.get_by_label("Swap").click();
+    h.run();
+    assert!(centre(&h, "Oboe").y < centre(&h, "Synth Bass").y, "swapped");
+}
+
+#[test]
+fn select_and_delete_empties_the_slot() {
+    let lib = sample_library();
+    let mut h = harness(lib.path());
+    h.run();
+    load_demo_set(&mut h);
+    assert!(h.query_by_label("<Empty>").is_none());
+
+    // Delete button, after confirming.
+    h.get_by_label("Oboe").click();
+    h.run();
+    h.get_by_label("Delete").click();
+    h.run();
+    h.get_by_label("Delete Patch");
+    shot(&mut h, "17-delete-patch");
+    h.get_by_label("OK").click();
+    h.run();
+    assert!(h.query_by_label("Oboe").is_none());
+    assert_eq!(h.query_all_by_label("<Empty>").count(), 1);
+
+    // The Delete key does the same; Cancel keeps the patch.
+    h.get_by_label("Synth Bass").click();
+    h.run();
+    h.key_press(egui::Key::Delete);
+    h.run();
+    h.get_by_label("Cancel").click();
+    h.run();
+    h.get_by_label("Synth Bass");
+    h.key_press(egui::Key::Delete);
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    assert_eq!(h.query_all_by_label("<Empty>").count(), 2);
+
+    // Saving the set leaves the empty slots out.
+    h.get_by_label("Save to Library…").click();
+    h.run();
+    h.get_by_role(Role::TextInput).type_text("Trimmed");
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    let saved = patch_set::load_syx(&lib.path().join("Trimmed.syx")).unwrap();
+    assert_eq!(saved.len(), NUM_PATCHES - 2);
+}
+
+#[test]
+fn double_click_opens_patch_actions() {
+    let lib = sample_library();
+    let mut h = harness(lib.path());
+    h.run();
+    load_demo_set(&mut h);
+    let pos = centre(&h, "Brass Stab");
+    double_click(&mut h, pos);
+    shot(&mut h, "18-double-click-slot");
+    h.get_by_label("Paste from Patch Library");
+    h.get_by_label("Patch #3");
 }
