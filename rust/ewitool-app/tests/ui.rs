@@ -671,3 +671,21 @@ fn double_click_opens_patch_actions() {
     h.get_by_label("Paste from Patch Library");
     h.get_by_label("Patch #3");
 }
+
+#[test]
+fn about_box_shows_icon_and_coffee_link() {
+    let lib = sample_library();
+    let mut h = harness(lib.path());
+    h.run();
+    h.get_by_label("Help").click();
+    h.run();
+    h.get_by_label("About EWITool2").click();
+    h.run();
+    h.get_by_label("Support this project: buy me a coffee");
+    shot(&mut h, "about");
+    h.get_by_label("OK").click();
+    h.run();
+    assert!(h
+        .query_by_label("Support this project: buy me a coffee")
+        .is_none());
+}

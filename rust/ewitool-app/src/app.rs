@@ -28,6 +28,9 @@ use crate::theme;
 pub const APP_NAME: &str = "EWITool2";
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const COPYRIGHT: &str = "Copyright 2026 S.Merrony,ledhed2222,ericdano";
+const COFFEE_URL: &str = "https://buymeacoffee.com/ericdannewitz";
+/// The app icon, shown in the About box.
+const ICON_PNG: &[u8] = include_bytes!("../assets/icons/logo.png");
 const ONLINE_HELP: &str = "https://github.com/ledhed2222/EWItool/wiki/Using-EWItool";
 const STATUS_TIMEOUT: Duration = Duration::from_secs(10);
 const PREVIEW_HELP: &str = "Hear this patch on the computer, using EWITool2's model of the \
@@ -315,6 +318,8 @@ pub struct App {
     last_slot_click: Option<(usize, f64)>,
     /// Plays patches on the computer's speakers.
     audio: Audition,
+    /// The app icon for the About box, loaded the first time it opens.
+    about_icon: Option<egui::TextureHandle>,
 }
 
 impl Default for App {
@@ -384,6 +389,7 @@ impl App {
             drag_over: None,
             last_slot_click: None,
             audio: Audition::new(),
+            about_icon: None,
             #[cfg(target_os = "macos")]
             native_menu: None,
         };
@@ -1933,6 +1939,16 @@ impl App {
         let mut close = false;
         let mut action = None;
         let mut preview_slot = None;
+        if matches!(dialog, Dialog::About) && self.about_icon.is_none() {
+            self.about_icon = eframe::icon_data::from_png_bytes(ICON_PNG)
+                .ok()
+                .map(|icon| {
+                    let size = [icon.width as usize, icon.height as usize];
+                    let image = egui::ColorImage::from_rgba_unmultiplied(size, &icon.rgba);
+                    ctx.load_texture("about-icon", image, egui::TextureOptions::LINEAR)
+                });
+        }
+        let about_icon = self.about_icon.clone();
 
         let modal = egui::Modal::new(egui::Id::unique("dialog")).show(ctx, |ui| {
             ui.set_max_width(560.0);
@@ -2025,9 +2041,18 @@ impl App {
                     });
                 }
                 Dialog::About => {
-                    ui.heading(format!("{APP_NAME} version {APP_VERSION}"));
-                    ui.label(COPYRIGHT);
-                    close = ok_button(ui);
+                    ui.vertical_centered(|ui| {
+                        if let Some(icon) = &about_icon {
+                            ui.add(
+                                egui::Image::new(icon).fit_to_exact_size(egui::vec2(112.0, 112.0)),
+                            );
+                        }
+                        ui.heading(format!("{APP_NAME} version {APP_VERSION}"));
+                        ui.label(COPYRIGHT);
+                        ui.add_space(8.0);
+                        ui.hyperlink_to("Support this project: buy me a coffee", COFFEE_URL);
+                        close = ok_button(ui);
+                    });
                 }
                 Dialog::Confirm {
                     title,

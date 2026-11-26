@@ -1333,7 +1333,7 @@ dependencies = [
 
 [[package]]
 name = "ewitool-app"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "cpal",
  "directories",
@@ -1352,14 +1352,14 @@ dependencies = [
 
 [[package]]
 name = "ewitool-core"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "fastrand",
 ]
 
 [[package]]
 name = "ewitool-synth"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "ewitool-core",
 ]
